@@ -807,6 +807,16 @@ static error_t argp_client_parse_opt(int key, char *arg, struct argp_state *stat
         break;
     case REPLY_CMD: {
         pd_spec_t val;
+        reply_mode_t reply_mode = REPLY_MODE_NORMAL;
+
+        // find out if sendfile or standard reply is used
+        if (arg && strncmp(arg, "sendfile", 8) == 0) {
+            reply_mode = REPLY_MODE_SENDFILE;
+            arg += 8;
+            if (*arg == ',')
+                arg++;
+        }
+
 
         if (arg == NULL)
             val = pd_build_fixed(default_resp_size);
@@ -823,16 +833,21 @@ static error_t argp_client_parse_opt(int key, char *arg, struct argp_state *stat
         }
 
         if (arguments->fwd_scope <= 0) {
-            if (ccmd_last(ccmd)->cmd == REPLY && ccmd_last(ccmd) != arguments->last_reserved_used) // update last chained reply
+            if (ccmd_last(ccmd)->cmd == REPLY && ccmd_last(ccmd) != arguments->last_reserved_used)  {// update last chained reply
                 ccmd_last(ccmd)->pd_val = val;
-            else // intra-chain reply
+                ccmd_last(ccmd)->resp.mode = reply_mode; // added reply_mode
+            }
+            else {// intra-chain reply
                 ccmd_add(ccmd, REPLY, &val);
+                ccmd_last(ccmd)->resp.mode = reply_mode; // added reply_mode
+            }
             break;
         }
 
         // Discard last reserved reply and use updated resp size
         queue_dequeue_tail(arguments->reserved_fwd_replies);
         ccmd_add(ccmd, REPLY, &val);
+        ccmd_last(ccmd)->resp.mode = reply_mode; // added reply_mode
         
         arguments->last_reserved_used = ccmd_last(ccmd);
         arguments->fwd_scope--;

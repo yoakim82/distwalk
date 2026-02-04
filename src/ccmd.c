@@ -18,6 +18,7 @@ void ccmd_add(queue_t* q, command_type_t cmd, pd_spec_t *p_pd_spec) {
     ccmd_node_t* new_node = calloc(1, sizeof(ccmd_node_t));
     new_node->cmd = cmd;
     new_node->pd_val = *p_pd_spec;
+    new_node->resp.mode = REPLY_MODE_NORMAL; // added default mode
 
     if (queue_size(q) >= 1)
         ccmd_last(q)->next = new_node;
