@@ -809,36 +809,48 @@ static error_t argp_client_parse_opt(int key, char *arg, struct argp_state *stat
         pd_spec_t val;
         reply_mode_t reply_mode = REPLY_MODE_NORMAL;
 
-        // find out if sendfile or standard reply is used
-        if (arg && strncmp(arg, "sendfile", 8) == 0) {
-            reply_mode = REPLY_MODE_SENDFILE;
-            arg += 8;
-            if (*arg == ',')
-                arg++;
-        }
-
+        printf("ARG: %s\n", arg);
 
         if (arg == NULL)
             val = pd_build_fixed(default_resp_size);
         else {
+            if (arg && strncmp(arg, ",sendfile", 9) == 0) { // find out if sendfile or standard reply is used
+            reply_mode = REPLY_MODE_SENDFILE;
+            printf("REPCMD: %#010x using SENDFILE: flag = %i \n", key, reply_mode);
+            //printf("REPLY_CMD: using SENDFILE \n");
+            arg += 9;
+            if (*arg == ',')
+                arg++;
+                
+            printf("ARG: %s\n", arg);
+            }
+
             check(pd_parse_bytes(&val, arg), "Wrong response size specification");
             val.min = MIN_REPLY_SIZE;
             val.max = BUF_SIZE;
+            printf("check(pd_parse_bytes) val.min=%f, val.max=%f\n", val.min, val.max);
+
             check(val.prob != FIXED || (val.val >= val.min && val.val <= val.max), "Wrong min-max range for response size");
         }
-
+        
         if (queue_size(ccmd) <= 0) { // edge-case
-            ccmd_add(ccmd, COMPUTE, &val);
+            ccmd_add(ccmd, REPLY, &val);
+            ccmd_last(ccmd)->resp.mode = reply_mode;
+
+            printf("edge case\n");
             break;
         }
 
         if (arguments->fwd_scope <= 0) {
             if (ccmd_last(ccmd)->cmd == REPLY && ccmd_last(ccmd) != arguments->last_reserved_used)  {// update last chained reply
                 ccmd_last(ccmd)->pd_val = val;
+                printf("arguments->fwd_scope <= 0\n");
+
                 ccmd_last(ccmd)->resp.mode = reply_mode; // added reply_mode
             }
             else {// intra-chain reply
                 ccmd_add(ccmd, REPLY, &val);
+                printf("intra-chain reply\n");
                 ccmd_last(ccmd)->resp.mode = reply_mode; // added reply_mode
             }
             break;

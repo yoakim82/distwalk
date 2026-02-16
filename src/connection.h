@@ -87,7 +87,9 @@ void conn_del_id(int id);
 int conn_del_sock(int sock);
 
 int conn_start_send(conn_info_t *conn, struct sockaddr_in target);
+int conn_start_sendfile(conn_info_t *conn, struct sockaddr_in target, int fd_sendfile, off_t sendfile_offset, size_t sendfile_size);
 int conn_send(conn_info_t *conn);
+int conn_send_v2(conn_info_t *conn);
 int conn_recv(conn_info_t *conn);
 
 int conn_enable_ssl(int conn_id, SSL_CTX *ctx, int is_server);

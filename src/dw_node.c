@@ -116,6 +116,8 @@ typedef struct {
     int storefd; // write
     int store_replyfd; // read
 
+    int storage_fd; // shared storage file descriptor for sendfile
+
     int worker_id;
     int core_id; // core pinning
     struct sched_attr sched_attrs;
@@ -521,6 +523,8 @@ int reply(req_info_t *req, message_t *m, command_t *cmd, conn_worker_info_t* inf
     reply_opts_t *opts = cmd_get_opts(reply_opts_t, cmd);
     assert(m_dst->req_size >= opts->resp_size);
 
+    //printf("Reply opts: %i\n", sizeof(opts));
+
     m_dst->req_id = m->req_id;
     m_dst->req_size = opts->resp_size;
     m_dst->cmds[0].cmd = EOM;
@@ -537,7 +541,24 @@ int reply(req_info_t *req, message_t *m, command_t *cmd, conn_worker_info_t* inf
     struct sockaddr_in target = req->target;
     conn_req_remove(conn, req);
     infos->active_reqs--;
-    return conn_start_send(&conns[conn_id], target);
+
+    // added branching here for the two cases
+    //printf("Reply opts: resp_size=%u, mode=%d\n", opts->resp_size, opts->mode);
+
+    switch (opts->mode) {
+
+    case REPLY_MODE_SENDFILE:
+
+        req->sendfile_fd = conn_worker_infos[conn_id].storage_fd; // note! fd must be copied here since req will be freed after this function returns,but the sendfile operation may not be completed yet
+        req->sendfile_offset = 0;
+        req->sendfile_size = opts->resp_size;
+        //printf("dw node REPLY using SENDFILE  (req_id=%d)\n", req->req_id);
+        return conn_start_sendfile(&conns[conn_id], target, req->sendfile_fd, req->sendfile_offset, req->sendfile_size);
+    
+    case REPLY_MODE_NORMAL:
+    default:
+        return conn_start_send(&conns[conn_id], target); // unchanged 
+    }
 }
 
 void compute_for_freqinv(unsigned long usecs) {
@@ -1765,6 +1786,7 @@ int main(int argc, char *argv[]) {
 
             storage_worker_info.store_replyfd[i] = fds2[i][1]; // write 
             conn_worker_infos[i].store_replyfd = fds2[i][0]; // read
+            conn_worker_infos[i].storage_fd = storage_worker_info.storage_info.storage_fd;
         }
     } else {
         for (int i = 0; i < input_args.num_threads; i++) {

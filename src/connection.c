@@ -7,6 +7,11 @@
 
 #include "connection.h"
 #include "dw_debug.h"
+#include <sys/stat.h>
+#include <unistd.h>
+#include <sys/sendfile.h>
+
+
 
 conn_info_t conns[MAX_CONNS];
 
@@ -345,6 +350,41 @@ message_t* conn_prepare_recv_message(conn_info_t *conn) {
     return m;
 }
 
+// start sending a message using sendfile, assume the head of the curr_send_buffer is a message_t type
+// returns the number of bytes sent, -1 if an error occured
+int conn_start_sendfile(conn_info_t *conn, struct sockaddr_in target, int fd_sendfile, off_t sendfile_offset, size_t sendfile_size) {
+    // prepare the Header (message_t)
+    message_t *m = (message_t*) conn->send_buf;
+    conn->target = target;
+    
+    m->req_size = sendfile_size + sizeof(message_t); // ?
+
+
+    if (conn->curr_send_size == 0)
+        conn->curr_send_buf = conn->send_buf;
+    
+    // The amount of "buffer" data to send is just the size of the message_t header
+    conn->curr_send_size = sizeof(message_t);
+
+    // init the metadata
+    // we use the copied fd from the storage_worker_info (not using the PIPE fd for sendfile since it does not allow 'piped' file pointers)
+    conn->file_fd = fd_sendfile;
+    conn->file_offset = sendfile_offset;
+    conn->file_remaining = sendfile_size;
+    
+    //printf("SENDFILE starting, conn_id: %d, offset: %ld, size: %zu\n", 
+    //       conn_get_id_by_ptr(conn), sendfile_offset, sendfile_size);
+
+    dw_log("SENDFILE starting, conn_id: %d, offset: %ld, size: %zu\n", 
+           conn_get_id_by_ptr(conn), sendfile_offset, sendfile_size);
+
+    // 3. Jump into the sending logic
+    if (conn->status == CONNECTING || conn->status == SSL_HANDSHAKE || conn->status == NOT_INIT)
+        return 0;
+    
+    return conn_send_v2(conn);
+}
+
 // start sending a message, assume the head of the curr_send_buffer is a message_t type
 // returns the number of bytes sent, -1 if an error occured
 int conn_start_send(conn_info_t *conn, struct sockaddr_in target) {
@@ -468,6 +508,69 @@ int conn_send(conn_info_t *conn) {
         conn->curr_send_buf = conn->send_buf;
 
     return (int)sent;
+}
+
+// this is the main sending loop for sendfile-based sending, called from conn_start_sendfile and also from DW_POLLOUT events when there is remaining data to send
+int conn_send_v2(conn_info_t *conn) {
+    int sock = conn->sock;
+
+    // PHASE 1: Send the Header (Buffer)
+    if (conn->curr_send_size > 0) {
+        // Use MSG_MORE to tell the kernel: "Don't flush the packet yet, file data is coming!"
+        ssize_t sent = send(sock, conn->curr_send_buf, conn->curr_send_size, 
+                            MSG_NOSIGNAL | MSG_MORE);
+        
+        if (sent <= 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return 0;
+            if (errno == EPIPE || errno == ECONNRESET) { conn->status = CLOSE; return 0; }
+            return -1;
+        }
+
+        conn->curr_send_buf += sent;
+        conn->curr_send_size -= sent;
+
+        // If header is not finished, return 0 to wait for next DW_POLLOUT
+        if (conn->curr_send_size > 0) return 0;
+    }
+
+    // PHASE 2: Send the File Body
+    printf("Phase 2, send file body using sendfile, conn_id: %d, offset: %ld, remaining size: %zu\n", 
+           conn_get_id_by_ptr(conn), conn->file_offset, conn->file_remaining);
+          
+    //struct stat st;
+    //fstat(conn->file_fd, &st);
+    //printf("file_fd=%d mode=%o\n", conn->file_fd, st.st_mode);
+
+    ssize_t released = 0;
+    if (conn->file_remaining > 0) {
+        // kernel reads from file_fd at file_offset and updates file_offset automatically
+        ssize_t released = sendfile(sock, conn->file_fd, &conn->file_offset, conn->file_remaining);
+
+        if (released == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return 0; 
+            if (errno == EPIPE || errno == ECONNRESET) { conn->status = CLOSE; return 0; }
+            perror("sendfile failed");
+            return -1;
+        }
+
+        if (released == 0) 
+            return -1; // EOF reached unexpectedly
+
+
+        conn->file_remaining -= released;
+        printf("sendfile sent %zd bytes, new offset: %ld, REMAINING: %zu\n", released, conn->file_offset, conn->file_remaining);
+
+    }
+
+    // PHASE 3: Completion Cleanup
+    if (conn->file_remaining == 0) {
+        dw_log("SENDFILE complete for conn_id=%d\n", conn_get_id_by_ptr(conn));
+        // Reset pointers for next request
+        conn->curr_send_buf = conn->send_buf;
+        // Note: Do NOT close(conn->file_fd) here because it is the shared storage FD!
+    }
+
+    return (int)released;
 }
 
 // return 1 if received succesfully, -1 on EAGAIN or EWOULDBLOCK, and 0 on other errors
