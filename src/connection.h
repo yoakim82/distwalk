@@ -39,6 +39,11 @@ typedef struct {
     unsigned char *curr_send_buf; // curr ptr in send buffer while SENDING
     unsigned long curr_send_size; // size of leftover data to send
 
+        // --- Added for sendfile() support ----
+    int     file_fd;              // storage file fd for sendfile
+    off_t file_offset;            // current offset in the file for sendfile
+    size_t  file_remaining;       // remaining bytes to send from the file
+
     req_info_t *req_list;        // request ring buffer
     unsigned int serialize_request;
     pthread_t parent_thread;
