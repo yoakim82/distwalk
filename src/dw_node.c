@@ -549,10 +549,13 @@ int reply(req_info_t *req, message_t *m, command_t *cmd, conn_worker_info_t* inf
 
     case REPLY_MODE_SENDFILE:
 
-        req->sendfile_fd = conn_worker_infos[conn_id].storage_fd; // note! fd must be copied here since req will be freed after this function returns,but the sendfile operation may not be completed yet
+        //printf("storage_fd=%d, conn_worker_infos[conn_id=%d].storage_fd=%d\n", storage_worker_info.storage_info.storage_fd, conn_id, conn_worker_infos[conn_id].storage_fd);
+
+
+        req->sendfile_fd = storage_worker_info.storage_info.storage_fd;//conn_worker_infos[conn_id].storage_fd; // note! fd must be copied here since req will be freed after this function returns,but the sendfile operation may not be completed yet
         req->sendfile_offset = 0;
         req->sendfile_size = opts->resp_size;
-        //printf("dw node REPLY using SENDFILE  (req_id=%d)\n", req->req_id);
+        //printf("dw node REPLY using SENDFILE  (req_id=%d, fd=%d)\n", req->req_id, req->sendfile_fd);
         return conn_start_sendfile(&conns[conn_id], target, req->sendfile_fd, req->sendfile_offset, req->sendfile_size);
     
     case REPLY_MODE_NORMAL:
@@ -742,7 +745,7 @@ int process_single_message(req_info_t *req, dw_poll_t *p_poll, conn_worker_info_
             }
             return 0;
         case REPLY:
-            dw_log("Handling REPLY: req_id=%d\n", m->req_id);
+            printf("Handling REPLY: req_id=%d\n", m->req_id);
             if (conn_get_status_by_id(req->conn_id) != CLOSE && !reply(req, m, cmd, infos)) {
                 fprintf(stderr, "reply() failed, conn_id: %d\n", conn_id);
                 return -1;
@@ -811,6 +814,8 @@ int obtain_messages(int conn_id, dw_poll_t *p_poll, conn_worker_info_t* infos) {
             req->curr_cmd = message_first_cmd(m);
             // process_single_message() may call reply() -> conn_req_remove() -> req_unlink() + defrag -> req and m invalid
             int req_size = m->req_size;
+            printf("Received message req_id=%d, size=%d, from %s:%d\n", m->req_id, req_size,
+                   inet_ntoa((struct in_addr) {conns[conn_id].target.sin_addr.s_addr}), ntohs(conns[conn_id].target.sin_port));
             int executed = process_single_message(req, p_poll, infos);
 
             if (executed < 0)
@@ -903,6 +908,8 @@ void handle_timeout(dw_poll_t *p_poll, conn_worker_info_t *infos) {
 void exec_request(dw_poll_t *p_poll, dw_poll_flags pflags, int conn_id, event_t type, conn_worker_info_t* infos) {
     conn_info_t *conn = conn_get_by_id(conn_id);
     dw_log("event_type=%s, conn_id=%d\n", get_event_str(type), conn_id);
+    //printf("event_type=%s, conn_id=%d\n", get_event_str(type), conn_id);
+
 
     if (conn->status == SSL_HANDSHAKE) {
         int hs = conn_do_ssl_handshake(conn_id);
@@ -949,6 +956,7 @@ void exec_request(dw_poll_t *p_poll, dw_poll_flags pflags, int conn_id, event_t 
 
     // check whether we have new or leftover messages to process
     dw_log("calling obtain_messages() from conn_id=%d's recv buffer\n", conn_id)
+    printf("conn_id=%d, curr_send_size=%lu, status=%s\n", conn_id, conn->curr_send_size, conn_status_str(conn_get_status(conn)));
     if (!obtain_messages(conn_id, p_poll, infos))
         goto err;
 
@@ -1341,6 +1349,7 @@ void* conn_worker(void* args) {
 
                 break;
             } else {
+                printf("event_type=%s, event_data=%d (conn_id if event_type==SOCKET, polled fd otherwise)\n", get_event_str(event_type), event_data);
                 exec_request(&infos->dw_poll, pflags, event_data, event_type, infos);
             }
         }
