@@ -43,6 +43,7 @@ typedef struct {
     int     file_fd;              // storage file fd for sendfile
     off_t file_offset;            // current offset in the file for sendfile
     size_t  file_remaining;       // remaining bytes to send from the file
+    reply_mode_t reply_mode;       // whether to use SENDFILE for REPLYs on this connection
 
     req_info_t *req_list;        // request ring buffer
     unsigned int serialize_request;
@@ -96,6 +97,8 @@ int conn_start_sendfile(conn_info_t *conn, struct sockaddr_in target, int fd_sen
 int conn_send(conn_info_t *conn);
 int conn_send_v2(conn_info_t *conn);
 int conn_recv(conn_info_t *conn);
+int conn_flush(conn_info_t *conn);
+
 
 int conn_enable_ssl(int conn_id, SSL_CTX *ctx, int is_server);
 int conn_do_ssl_handshake(int conn_id);

@@ -341,9 +341,9 @@ message_t* conn_prepare_recv_message(conn_info_t *conn) {
     }
     assert(m->req_size >= sizeof(message_t) && m->req_size <= BUF_SIZE);
 
-    dw_log("Got complete ");
+    dw_log("Got complete message of [recv size:%lu (expected %lu), ready to process\n", msg_size, m->req_size);
 #ifdef DW_DEBUG
-    msg_log(m, "");
+    //msg_log(m, "");
 #endif
 
     conn->curr_proc_buf += m->req_size;
@@ -372,8 +372,8 @@ int conn_start_sendfile(conn_info_t *conn, struct sockaddr_in target, int fd_sen
     conn->file_offset = sendfile_offset;
     conn->file_remaining = sendfile_size;
     
-    printf("SENDFILE starting, conn_id: %d, offset: %ld, size: %zu fd: %d\n", 
-           conn_get_id_by_ptr(conn), sendfile_offset, sendfile_size, conn->file_fd);
+    //printf("SENDFILE starting, conn_id: %d, offset: %ld, size: %zu fd: %d\n", 
+    //       conn_get_id_by_ptr(conn), sendfile_offset, sendfile_size, conn->file_fd);
 
     dw_log("SENDFILE starting, conn_id: %d, offset: %ld, size: %zu\n", 
            conn_get_id_by_ptr(conn), sendfile_offset, sendfile_size);
@@ -542,12 +542,43 @@ int conn_send_v2(conn_info_t *conn) {
     //printf("file_fd=%d mode=%o\n", conn->file_fd, st.st_mode);
 
     ssize_t released = 0;
-    while (conn->file_remaining > 0) {
+    if (conn->file_remaining > 0) {
         // kernel reads from file_fd at file_offset and updates file_offset automatically
         //printf("\tSENDFILE fd=%d\n", conn->file_fd);
 
-        ssize_t released = sendfile(sock, conn->file_fd, &conn->file_offset, conn->file_remaining);
+        released = sendfile(sock, conn->file_fd, &conn->file_offset, conn->file_remaining);
 
+        if (released == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                dw_log("SENDFILE Got EAGAIN or EWOULDBLOCK, ignoring...\n");
+                //enable_epollout(sock);
+                conn_set_status(conn, SENDING);
+                return 0; 
+            }
+            if (errno == EPIPE || errno == ECONNRESET) {
+                dw_log("SENDFILE Connection closed by remote end conn_id=%d\n", conn_get_id_by_ptr(conn));
+                conn->status = CLOSE;
+                return -1;
+            }
+            fprintf(stderr, "SENDFILE error: %s\n", strerror(errno));
+            printf("\tsendfile sent no bytes (-1), new offset: %ld, REMAINING: %zu, status: %s\n", conn->file_offset, conn->file_remaining, conn_status_str(conn_get_status(conn)));
+            return -1;
+        }
+        else {
+            conn->file_remaining -= released;
+
+
+            if (conn->file_remaining > 0) {
+            
+                conn_set_status(conn, SENDING);
+                printf("\tsendfile sent %zd bytes, new offset: %ld, REMAINING: %zu, status: %s\n", released, conn->file_offset, conn->file_remaining, conn_status_str(conn_get_status(conn)));
+
+                return 0; // return 0 to wait for next DW_POLLOUT if there is still remaining data to send
+            }
+            printf("\tsendfile sent %zd bytes, new offset: %ld, REMAINING: %zu, status: %s\n", released, conn->file_offset, conn->file_remaining, conn_status_str(conn_get_status(conn)));
+
+        }
+        /*
         if (released == -1) {
             printf("\tsendfile error: %s\n", strerror(errno));
             if (errno == EAGAIN || errno == EWOULDBLOCK) return 0; 
@@ -563,18 +594,19 @@ int conn_send_v2(conn_info_t *conn) {
 
 
         conn->file_remaining -= released;
-        printf("\tsendfile sent %zd bytes, new offset: %ld, REMAINING: %zu\n", released, conn->file_offset, conn->file_remaining);
-
+        */        
     }
 
-    printf("SENDFILE complete for conn_id=%d\n", conn_get_id_by_ptr(conn));
     // PHASE 3: Completion Cleanup
     if (conn->file_remaining == 0) {
         dw_log("SENDFILE complete for conn_id=%d\n", conn_get_id_by_ptr(conn));
+        printf("SENDFILE complete for conn_id=%d\n", conn_get_id_by_ptr(conn));
+
         // Reset pointers for next request
         conn->file_fd = -1;
         conn->file_offset = 0;
         conn->curr_send_buf = conn->send_buf;
+        conn_set_status(conn, READY);
         // Note: Do NOT close(conn->file_fd) here because it is the shared storage FD!
     }
 
@@ -606,6 +638,18 @@ int conn_recv(conn_info_t *conn) {
     conn->curr_recv_size -= received;
 
     return 1;
+}
+
+
+int conn_flush(conn_info_t *conn)
+{
+    if (conn->reply_mode == REPLY_MODE_NORMAL)
+        return conn_send(conn);
+
+    if (conn->reply_mode == REPLY_MODE_SENDFILE)
+        return conn_send_v2(conn);
+
+    return -1;
 }
 
 int conn_enable_ssl(int conn_id, SSL_CTX *ctx, int is_server) {
