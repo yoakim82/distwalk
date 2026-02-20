@@ -341,7 +341,7 @@ message_t* conn_prepare_recv_message(conn_info_t *conn) {
     }
     assert(m->req_size >= sizeof(message_t) && m->req_size <= BUF_SIZE);
 
-    dw_log("Got complete message of [recv size:%lu (expected %lu), ready to process\n", msg_size, m->req_size);
+    dw_log("Got complete message of [recv size:%lu (expected %d), ready to process\n", msg_size, m->req_size);
 #ifdef DW_DEBUG
     //msg_log(m, "");
 #endif
@@ -551,8 +551,7 @@ int conn_send_v2(conn_info_t *conn) {
         if (released == -1) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 dw_log("SENDFILE Got EAGAIN or EWOULDBLOCK, ignoring...\n");
-                //enable_epollout(sock);
-                conn_set_status(conn, SENDING);
+                conn_set_status(conn, SENDING); // indicates that we are in the middle of sending and need to wait for next DW_POLLOUT
                 return 0; 
             }
             if (errno == EPIPE || errno == ECONNRESET) {

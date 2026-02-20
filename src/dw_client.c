@@ -163,7 +163,6 @@ void *thread_sender(void *data) {
 
     message_t *m;
     conn_info_t *conn = conn_get_by_id(p->conn_id);
-    printf("Sender thread %d: connected to server, starting in 1 second...\n", thread_id);
 
 #ifdef DW_DEBUG
     ccmd_log(ccmd);
@@ -267,10 +266,7 @@ void *thread_receiver(void *data) {
 
     int i_incr = 0;
     int pkt_i;
-    printf("before while Receiver thread %d started, pkt_i = %d, num_pkts = %ld\n",  thread_id, num_success + num_error + num_timedout, num_pkts);
     while ((pkt_i = num_success + num_error + num_timedout) < num_pkts) {
-            printf("Receiver thread %d started, pkt_i = %d, num_pkts = %ld\n",  thread_id, num_success + num_error + num_timedout, num_pkts);
-
         if (pkt_i % pkts_per_session == 0) {
             struct timespec ts1, ts2;
             if (conn_times)

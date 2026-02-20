@@ -749,8 +749,25 @@ int process_single_message(req_info_t *req, dw_poll_t *p_poll, conn_worker_info_
         case REPLY:
             //printf("Handling REPLY: req_id=%d\n", m->req_id);
             if (conn_get_status_by_id(req->conn_id) != CLOSE && !reply(req, m, cmd, infos)) {
-                fprintf(stderr, "reply() failed, conn_id: %d\n", conn_id);
-                return -1;
+                fprintf(stderr, "reply() returned, conn_id: %d\n", conn_id);
+                
+                if (conn_get_status_by_id(req->conn_id) == SENDING) {
+                    printf("Message req_id=%d is still sending after REPLY, conn_id: %d\n", m->req_id, conn_id);
+                    sys_check(dw_poll_mod(p_poll, conns[req->conn_id].sock, DW_POLLOUT | DW_POLLONESHOT, i2l(SOCKET, conn_id)));
+                    //sys_check(dw_poll_mod(p_poll, conn->sock, DW_POLLIN | DW_POLLONESHOT, i2l(SOCKET, conn_id)));
+                    return 1;
+                }
+                else {
+                    printf("Closing connection conn_id: %d after failed REPLY\n", conn_id);
+                    close_and_forget(p_poll, conns[conn_id].sock);
+                    return -1;
+                }
+            }
+            if (conn_get_status_by_id(req->conn_id) == SENDING) {
+
+                printf("Message req_id=%d is still sending after REPLY, conn_id: %d\n", m->req_id, conn_id);
+                sys_check(dw_poll_mod(p_poll, conns[conn_id].sock, DW_POLLOUT | DW_POLLONESHOT, i2l(SOCKET, conn_id)));
+                //sys_check(dw_poll_mod(p_poll, conn->sock, DW_POLLIN | DW_POLLONESHOT, i2l(SOCKET, conn_id)));
             }
             // any further cmds[] for replied-to hop, not me
             return 1;
@@ -969,12 +986,14 @@ void exec_request(dw_poll_t *p_poll, dw_poll_flags pflags, int conn_id, event_t 
 
         if (r == 0) {
             // still pending
-            sys_check(dw_poll_mod(p_poll, conn->sock, DW_POLLIN | DW_POLLOUT, i2l(SOCKET, conn_id)));
-            conn_set_status(conn, SENDING);
+            printf("conn_id=%d, still pending after flush, adding EPOLLOUT\n", conn_id);
+            sys_check(dw_poll_mod(p_poll, conn->sock, DW_POLLOUT | DW_POLLONESHOT, i2l(SOCKET, conn_id)));
+            //conn_set_status(conn, SENDING);
         }
         else {
             // finished
-            sys_check(dw_poll_mod(p_poll, conn->sock, DW_POLLIN, i2l(SOCKET, conn_id)));
+            printf("conn_id=%d, flush finished, adding EPOLLIN\n", conn_id);
+            sys_check(dw_poll_mod(p_poll, conn->sock, DW_POLLIN | DW_POLLONESHOT, i2l(SOCKET, conn_id)));
             conn_set_status(conn, READY);
             infos->active_conns++;
         }
