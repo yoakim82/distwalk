@@ -26,3 +26,5 @@ test*
 umls_sendfile_flow*
 dw_store
 dw_proxy
+*.txt
+.github
