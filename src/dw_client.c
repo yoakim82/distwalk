@@ -538,7 +538,7 @@ static struct argp_option argp_client_options[] = {
     { "skip",               SKIP_CMD,               "n[,prob=val,every=m]",                       0, "Skip the next n commands with probability val in (0,1.0] (defaults to 1.0), every m requests (defaults to 1)"},
     { "forward",            FORWARD_CMD,            "ip:port[,ip:port,...][,timeout=usec][,retry=n][,nack=n]\n      [,branch]", 0, "Add a FORWARD command to the given ip:port list, specifying optional connection timeout, retries and number of required acks, and whether its a continued/branched multi-forward"},
     { "ps",                 SEND_REQUEST_SIZE,      "nbytes_spec",          0, "Set payload size of sent requests"},
-    { "rs",                 REPLY_CMD,              "nbytes_spec", OPTION_ARG_OPTIONAL, "Add a REPLY command, optionally specifying the payload size"},
+    { "rs",                 REPLY_CMD,              "nbytes_spec", 0, "Add a REPLY command, optionally specifying the payload size"},
     { "num-threads",        NUM_THREADS,            "n",                                          0, "Number of threads dedicated to communication" },
     { "nt",                 NUM_THREADS,            "n", OPTION_ALIAS },
     { "num-sessions",       NUM_SESSIONS,           "n",                                          0, "Number of sessions each thread establishes with the (initial) distwalk node"},
@@ -831,36 +831,40 @@ static error_t argp_client_parse_opt(int key, char *arg, struct argp_state *stat
         check(send_pkt_size_pd.val + TCPIP_HEADERS_SIZE <= BUF_SIZE, "Too big send request size, maximum is %d", BUF_SIZE);
         break;
     case REPLY_CMD: {
-        pd_spec_t val;
+        pd_spec_t val = pd_build_fixed(default_resp_size);
         reply_mode_t reply_mode = REPLY_MODE_NORMAL;
 
-        printf("ARG: %s\n", arg);
+        //printf("ARG: %s\n", arg);
 
         if (arg == NULL)
             val = pd_build_fixed(default_resp_size);
         else {
-            if (arg && strncmp(arg, ",sendfile", 9) == 0) { // find out if sendfile or standard reply is used
-            reply_mode = REPLY_MODE_SENDFILE;
-            printf("REPCMD: %#010x using SENDFILE: flag = %i \n", key, reply_mode);
-            //printf("REPLY_CMD: using SENDFILE \n");
-            arg += 9;
-            if (*arg == ',')
-                arg++;
-                
-            printf("ARG: %s\n", arg);
-            }
+            do {
+                if (strncmp(arg, "sendfile", 8) == 0) {
+                    reply_mode = REPLY_MODE_SENDFILE;
+                    arg += 8;
+                } else {
+                    check(pd_parse_bytes(&val, arg),
+                            "Wrong response size specification");
+                    break;
+                }
 
-            check(pd_parse_bytes(&val, arg), "Wrong response size specification");
-            val.min = MIN_REPLY_SIZE;
-            val.max = BUF_SIZE;
-            printf("check(pd_parse_bytes) val.min=%f, val.max=%f\n", val.min, val.max);
-
-            check(val.prob != FIXED || (val.val >= val.min && val.val <= val.max), "Wrong min-max range for response size");
+                if (arg != NULL && *arg == ',')
+                    arg++;
+            } while (arg != NULL && *arg != '\0');
         }
+        if (pd_is_none(&val))
+            val = pd_build_fixed(default_resp_size);
+        
+        val.min = MIN_REPLY_SIZE;
+        val.max = BUF_SIZE;
+        
+        check(val.prob != FIXED || (val.val >= val.min && val.val <= val.max), "Wrong min-max range for response size");
+        
         
         if (queue_size(ccmd) <= 0) { // edge-case
-            ccmd_add(ccmd, REPLY, &val);
-            ccmd_last(ccmd)->resp.mode = reply_mode;
+            ccmd_add_reply(ccmd, REPLY, &val, reply_mode);
+            //ccmd_last(ccmd)->resp.mode = reply_mode;
 
             printf("edge case\n");
             break;
@@ -869,14 +873,11 @@ static error_t argp_client_parse_opt(int key, char *arg, struct argp_state *stat
         if (arguments->fwd_scope <= 0) {
             if (ccmd_last(ccmd)->cmd == REPLY && ccmd_last(ccmd) != arguments->last_reserved_used)  {// update last chained reply
                 ccmd_last(ccmd)->pd_val = val;
-                printf("arguments->fwd_scope <= 0\n");
-
-                ccmd_last(ccmd)->resp.mode = reply_mode; // added reply_mode
+                //ccmd_last(ccmd)->resp.mode = reply_mode; // added reply_mode
             }
             else {// intra-chain reply
                 ccmd_add(ccmd, REPLY, &val);
-                printf("intra-chain reply\n");
-                ccmd_last(ccmd)->resp.mode = reply_mode; // added reply_mode
+                //ccmd_last(ccmd)->resp.mode = reply_mode; // added reply_mode
             }
             break;
         }
