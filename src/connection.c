@@ -357,7 +357,7 @@ int conn_start_sendfile(conn_info_t *conn, struct sockaddr_in target, int fd_sen
     message_t *m = (message_t*) conn->send_buf;
     conn->target = target;
     
-    m->req_size = sendfile_size + sizeof(message_t); // ?
+    m->req_size = sendfile_size; // + sizeof(message_t); // ?
 
 
     if (conn->curr_send_size == 0)
@@ -370,7 +370,7 @@ int conn_start_sendfile(conn_info_t *conn, struct sockaddr_in target, int fd_sen
     // we use the copied fd from the storage_worker_info (not using the PIPE fd for sendfile since it does not allow 'piped' file pointers)
     conn->file_fd = fd_sendfile;
     conn->file_offset = sendfile_offset;
-    conn->file_remaining = sendfile_size;
+    conn->file_remaining = sendfile_size - sizeof(message_t); // we consider the header as part of the file data to be sent, so we subtract its size from the remaining bytes to send
     
     //printf("SENDFILE starting, conn_id: %d, offset: %ld, size: %zu fd: %d\n", 
     //       conn_get_id_by_ptr(conn), sendfile_offset, sendfile_size, conn->file_fd);
@@ -514,32 +514,25 @@ int conn_send(conn_info_t *conn) {
 int conn_send_v2(conn_info_t *conn) {
     int sock = conn->sock;
 
-    // PHASE 1: Send the Header (Buffer)
-    if (conn->curr_send_size > 0) {
+    // PHASE 1: Send the Header (Buffer) (blocking until header is fully sent, then move on to sendfile)
+    while (conn->curr_send_size > 0) {
         // Use MSG_MORE to tell the kernel: "Don't flush the packet yet, file data is coming!"
         ssize_t sent = send(sock, conn->curr_send_buf, conn->curr_send_size, 
                             MSG_NOSIGNAL | MSG_MORE);
         
         if (sent <= 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) return 0;
-            if (errno == EPIPE || errno == ECONNRESET) { conn->status = CLOSE; return 0; }
-            return -1;
+            if (errno == EAGAIN || errno == EWOULDBLOCK) continue; // try again until we can send the header
+            if (errno == EPIPE || errno == ECONNRESET) { conn->status = CLOSE; return -1; }
         }
 
         conn->curr_send_buf += sent;
         conn->curr_send_size -= sent;
 
         // If header is not finished, return 0 to wait for next DW_POLLOUT
-        if (conn->curr_send_size > 0) return 0;
+        //if (conn->curr_send_size > 0) return 0;
     }
 
     // PHASE 2: Send the File Body
-    //printf("Phase 2, send file body using sendfile, conn_id: %d, offset: %ld, remaining size: %zu\n", 
-    //       conn_get_id_by_ptr(conn), conn->file_offset, conn->file_remaining);
-          
-    //struct stat st;
-    //fstat(conn->file_fd, &st);
-    //printf("file_fd=%d mode=%o\n", conn->file_fd, st.st_mode);
 
     ssize_t released = 0;
     if (conn->file_remaining > 0) {
@@ -577,23 +570,7 @@ int conn_send_v2(conn_info_t *conn) {
             printf("\tsendfile sent %zd bytes, new offset: %ld, REMAINING: %zu, status: %s\n", released, conn->file_offset, conn->file_remaining, conn_status_str(conn_get_status(conn)));
 
         }
-        /*
-        if (released == -1) {
-            printf("\tsendfile error: %s\n", strerror(errno));
-            if (errno == EAGAIN || errno == EWOULDBLOCK) return 0; 
-            if (errno == EPIPE || errno == ECONNRESET) { conn->status = CLOSE; return 0; }
-            perror("sendfile failed");
-            continue;
-        }
-
-        if (released == 0) {
-            printf("sendfile returned 0, EOF reached unexpectedly\n");    
-            return -1; // EOF reached unexpectedly
-        }
-
-
-        conn->file_remaining -= released;
-        */        
+        
     }
 
     // PHASE 3: Completion Cleanup
