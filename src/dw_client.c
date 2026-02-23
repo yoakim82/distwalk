@@ -885,7 +885,7 @@ static error_t argp_client_parse_opt(int key, char *arg, struct argp_state *stat
                 //ccmd_last(ccmd)->resp.mode = reply_mode; // added reply_mode
             }
             else {// intra-chain reply
-                ccmd_add(ccmd, REPLY, &val);
+                ccmd_add_reply(ccmd, REPLY, &val, reply_mode);
                 //ccmd_last(ccmd)->resp.mode = reply_mode; // added reply_mode
             }
             break;
@@ -893,7 +893,7 @@ static error_t argp_client_parse_opt(int key, char *arg, struct argp_state *stat
 
         // Discard last reserved reply and use updated resp size
         queue_dequeue_tail(arguments->reserved_fwd_replies);
-        ccmd_add(ccmd, REPLY, &val);
+        ccmd_add_reply(ccmd, REPLY, &val, reply_mode);
         ccmd_last(ccmd)->resp.mode = reply_mode; // added reply_mode
         
         arguments->last_reserved_used = ccmd_last(ccmd);
