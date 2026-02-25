@@ -513,8 +513,9 @@ int conn_send(conn_info_t *conn) {
 // this is the main sending loop for sendfile-based sending, called from conn_start_sendfile and also from DW_POLLOUT events when there is remaining data to send
 int conn_send_v2(conn_info_t *conn) {
     int sock = conn->sock;
+    ssize_t released = 0;
 
-    // PHASE 1: Send the Header (Buffer) (blocking until header is fully sent, then move on to sendfile)
+    // PHASE 1: Send the header (blocking until header is fully sent, then move on to sendfile)
     while (conn->curr_send_size > 0) {
         // Use MSG_MORE to tell the kernel: "Don't flush the packet yet, file data is coming!"
         ssize_t sent = send(sock, conn->curr_send_buf, conn->curr_send_size, 
@@ -527,36 +528,28 @@ int conn_send_v2(conn_info_t *conn) {
 
         conn->curr_send_buf += sent;
         conn->curr_send_size -= sent;
-
-        // If header is not finished, return 0 to wait for next DW_POLLOUT
-        //if (conn->curr_send_size > 0) return 0;
     }
 
-    // PHASE 2: Send the File Body
-
-    ssize_t released = 0;
+    // PHASE 2: Send the file body
     if (conn->file_remaining > 0) {
         // kernel reads from file_fd at file_offset and updates file_offset automatically
-        //printf("\tSENDFILE fd=%d\n", conn->file_fd);
 
         released = sendfile(sock, conn->file_fd, &conn->file_offset, conn->file_remaining);
 
         if (released == -1) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                dw_log("SENDFILE Got EAGAIN or EWOULDBLOCK, ignoring...\n");
+                dw_log("sendfile Got EAGAIN or EWOULDBLOCK, ignoring...\n");
                 conn_set_status(conn, SENDING); // indicates that we are in the middle of sending and need to wait for next DW_POLLOUT
                 return 0; 
             }
             if (errno == EPIPE || errno == ECONNRESET) {
-                dw_log("SENDFILE Connection closed by remote end conn_id=%d\n", conn_get_id_by_ptr(conn));
+                dw_log("sendfile failed, connection closed by remote end conn_id=%d\n", conn_get_id_by_ptr(conn));
                 conn->status = CLOSE;
                 return -1;
             }
             fprintf(stderr, "SENDFILE error: %s\n", strerror(errno));
-            printf("\tsendfile sent no bytes (-1), new offset: %ld, REMAINING: %zu, status: %s\n", conn->file_offset, conn->file_remaining, conn_status_str(conn_get_status(conn)));
             return -1;
-        }
-        else {
+        } else {
             conn->file_remaining -= released;
 
 
@@ -567,16 +560,14 @@ int conn_send_v2(conn_info_t *conn) {
 
                 return 0; // return 0 to wait for next DW_POLLOUT if there is still remaining data to send
             }
-            printf("\tsendfile sent %zd bytes, new offset: %ld, REMAINING: %zu, status: %s\n", released, conn->file_offset, conn->file_remaining, conn_status_str(conn_get_status(conn)));
+            dw_log("sendfile sent %zd bytes, new offset: %ld, REMAINING: %zu, status: %s\n", released, conn->file_offset, conn->file_remaining, conn_status_str(conn_get_status(conn)));
 
         }
-        
     }
 
     // PHASE 3: Completion Cleanup
     if (conn->file_remaining == 0) {
         dw_log("SENDFILE complete for conn_id=%d\n", conn_get_id_by_ptr(conn));
-        printf("SENDFILE complete for conn_id=%d\n", conn_get_id_by_ptr(conn));
 
         // Reset pointers for next request
         conn->file_fd = -1;

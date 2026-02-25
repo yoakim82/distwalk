@@ -966,18 +966,7 @@ void exec_request(dw_poll_t *p_poll, dw_poll_flags pflags, int conn_id, event_t 
         infos->active_conns++;
         // we need the send_messages() below to still be tried afterwards
     }
-    /*
-    if ((pflags & DW_POLLOUT) && conn->curr_send_size > 0 && conn_get_status(conn) != CONNECTING && conn_get_status(conn) != NOT_INIT) {
-        dw_log("calling send_mesg() to conn_id=%d\n", conn_id);
-        if (!conn_send(conn))
-            goto err;
-    }
-    if ((pflags & DW_POLLOUT) && conn->file_remaining > 0 && conn_get_status(conn) != CONNECTING && conn_get_status(conn) != NOT_INIT) {
-        printf("calling sendfile send_mesg() to conn_id=%d\n", conn_id);
-        if (!conn_send_v2(conn))
-            goto err;
-    }
-    */
+    
     if (pflags & DW_POLLOUT) {
         int r = conn_flush(conn);
 
@@ -989,8 +978,7 @@ void exec_request(dw_poll_t *p_poll, dw_poll_flags pflags, int conn_id, event_t 
             printf("conn_id=%d, still pending after flush, adding EPOLLOUT\n", conn_id);
             sys_check(dw_poll_mod(p_poll, conn->sock, DW_POLLOUT | DW_POLLONESHOT, i2l(SOCKET, conn_id)));
             //conn_set_status(conn, SENDING);
-        }
-        else {
+        } else {
             // finished
             printf("conn_id=%d, flush finished, adding EPOLLIN\n", conn_id);
             sys_check(dw_poll_mod(p_poll, conn->sock, DW_POLLIN | DW_POLLONESHOT, i2l(SOCKET, conn_id)));
@@ -1008,40 +996,7 @@ void exec_request(dw_poll_t *p_poll, dw_poll_flags pflags, int conn_id, event_t 
     if (!obtain_messages(conn_id, p_poll, infos))
         goto err;
 
-    /*
-    if (conn->curr_send_size > 0 && conn_get_status(conn) == READY) {
-        dw_log("adding EPOLLOUT for sock=%d, conn_id=%d, curr_send_size=%lu\n",
-               conns->sock, conn_id, conns->curr_send_size);
-        sys_check(dw_poll_mod(p_poll, conns->sock, DW_POLLIN | DW_POLLOUT, i2l(SOCKET, conn_id)));
-        conn_set_status(conn, SENDING);
-    }
-
     
-    if (conn->curr_send_size == 0 && conn_get_status(conn) == SENDING) {
-        dw_log("removing EPOLLOUT for sock=%d, conn_id=%d, curr_send_size=%lu\n",
-               conn->sock, conn_id, conn->curr_send_size);
-        sys_check(dw_poll_mod(p_poll, conns->sock, DW_POLLIN, i2l(SOCKET, conn_id)));
-        conn_set_status(conn, READY);
-        infos->active_conns++;
-    }
-    
-
-    if (conn->file_remaining > 0 && conn_get_status(conn) == SENDING_SENDFILE) {
-        dw_log("adding EPOLLOUT for sendfile sock=%d, conn_id=%d, curr_send_size=%lu\n",
-               conns->sock, conn_id, conns->curr_send_size);
-        sys_check(dw_poll_mod(p_poll, conns->sock, DW_POLLIN | DW_POLLOUT, i2l(SOCKET, conn_id)));
-        conn_set_status(conn, SENDING_SENDFILE);
-    }
-
-    if (conn->file_remaining == 0 && conn->curr_send_size == 0 && conn_get_status(conn) != READY) {
-        dw_log("removing EPOLLOUT for sendfile sock=%d, conn_id=%d, curr_send_size=%lu\n",
-               conn->sock, conn_id, conn->curr_send_size);
-        sys_check(dw_poll_mod(p_poll, conns->sock, DW_POLLIN, i2l(SOCKET, conn_id)));
-        conn_set_status(conn, READY);
-        infos->active_conns++;
-    }
-        */
-
     return;
 
  err:

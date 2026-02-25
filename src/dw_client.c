@@ -843,8 +843,6 @@ static error_t argp_client_parse_opt(int key, char *arg, struct argp_state *stat
         pd_spec_t val = pd_build_fixed(default_resp_size);
         reply_mode_t reply_mode = REPLY_MODE_NORMAL;
 
-        //printf("ARG: %s\n", arg);
-
         if (arg == NULL)
             val = pd_build_fixed(default_resp_size);
         else {
@@ -873,7 +871,6 @@ static error_t argp_client_parse_opt(int key, char *arg, struct argp_state *stat
         
         if (queue_size(ccmd) <= 0) { // edge-case
             ccmd_add_reply(ccmd, REPLY, &val, reply_mode);
-            //ccmd_last(ccmd)->resp.mode = reply_mode;
 
             printf("edge case\n");
             break;
@@ -882,11 +879,8 @@ static error_t argp_client_parse_opt(int key, char *arg, struct argp_state *stat
         if (arguments->fwd_scope <= 0) {
             if (ccmd_last(ccmd)->cmd == REPLY && ccmd_last(ccmd) != arguments->last_reserved_used)  {// update last chained reply
                 ccmd_last(ccmd)->pd_val = val;
-                //ccmd_last(ccmd)->resp.mode = reply_mode; // added reply_mode
-            }
-            else {// intra-chain reply
+            } else {// intra-chain reply
                 ccmd_add_reply(ccmd, REPLY, &val, reply_mode);
-                //ccmd_last(ccmd)->resp.mode = reply_mode; // added reply_mode
             }
             break;
         }
