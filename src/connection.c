@@ -357,7 +357,7 @@ int conn_start_sendfile(conn_info_t *conn, struct sockaddr_in target, int fd_sen
     message_t *m = (message_t*) conn->send_buf;
     conn->target = target;
     
-    m->req_size = sendfile_size; // + sizeof(message_t); // ?
+    m->req_size = sendfile_size;
 
 
     if (conn->curr_send_size == 0)
@@ -372,8 +372,6 @@ int conn_start_sendfile(conn_info_t *conn, struct sockaddr_in target, int fd_sen
     conn->file_offset = sendfile_offset;
     conn->file_remaining = sendfile_size - sizeof(message_t); // we consider the header as part of the file data to be sent, so we subtract its size from the remaining bytes to send
     
-    //printf("SENDFILE starting, conn_id: %d, offset: %ld, size: %zu fd: %d\n", 
-    //       conn_get_id_by_ptr(conn), sendfile_offset, sendfile_size, conn->file_fd);
 
     dw_log("SENDFILE starting, conn_id: %d, offset: %ld, size: %zu\n", 
            conn_get_id_by_ptr(conn), sendfile_offset, sendfile_size);

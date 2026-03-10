@@ -118,7 +118,6 @@ int ccmd_dump(queue_t* q, message_t* m) {
                 exit(EXIT_FAILURE);
         }
         m_cmd_itr = cmd_next(m_cmd_itr);
-        //printf("%s\n", get_command_name(curr->cmd));
         ccmd_itr = ccmd_itr->next;
     }
     if (avail < cmd_type_size(EOM))
