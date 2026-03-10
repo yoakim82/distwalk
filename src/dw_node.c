@@ -756,8 +756,7 @@ int process_single_message(req_info_t *req, dw_poll_t *p_poll, conn_worker_info_
                     sys_check(dw_poll_mod(p_poll, conns[req->conn_id].sock, DW_POLLOUT | DW_POLLONESHOT, i2l(SOCKET, conn_id)));
                     //sys_check(dw_poll_mod(p_poll, conn->sock, DW_POLLIN | DW_POLLONESHOT, i2l(SOCKET, conn_id)));
                     return 1;
-                }
-                else {
+                } else {
                     printf("Closing connection conn_id: %d after failed REPLY\n", conn_id);
                     close_and_forget(p_poll, conns[conn_id].sock);
                     return -1;
