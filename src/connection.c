@@ -554,7 +554,7 @@ int conn_send_v2(conn_info_t *conn) {
             if (conn->file_remaining > 0) {
             
                 conn_set_status(conn, SENDING);
-                printf("\tsendfile sent %zd bytes, new offset: %ld, REMAINING: %zu, status: %s\n", released, conn->file_offset, conn->file_remaining, conn_status_str(conn_get_status(conn)));
+                dw_log("\tsendfile sent %zd bytes, new offset: %ld, REMAINING: %zu, status: %s\n", released, conn->file_offset, conn->file_remaining, conn_status_str(conn_get_status(conn)));
 
                 return 0; // return 0 to wait for next DW_POLLOUT if there is still remaining data to send
             }

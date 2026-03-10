@@ -748,21 +748,21 @@ int process_single_message(req_info_t *req, dw_poll_t *p_poll, conn_worker_info_
             return 0;
         case REPLY:
             if (conn_get_status_by_id(req->conn_id) != CLOSE && !reply(req, m, cmd, infos)) {
-                fprintf(stderr, "reply() returned, conn_id: %d\n", conn_id);
+                dw_log("reply() returned, conn_id: %d\n", conn_id);
                 
                 if (conn_get_status_by_id(req->conn_id) == SENDING) {
-                    printf("Message req_id=%d is still sending after REPLY, conn_id: %d\n", m->req_id, conn_id);
+                    dw_log("Message req_id=%d is still sending after REPLY, conn_id: %d\n", m->req_id, conn_id);
                     sys_check(dw_poll_mod(p_poll, conns[req->conn_id].sock, DW_POLLOUT | DW_POLLONESHOT, i2l(SOCKET, conn_id)));
                     return 1;
                 } else {
-                    printf("Closing connection conn_id: %d after failed REPLY\n", conn_id);
+                    dw_log("Closing connection conn_id: %d after failed REPLY\n", conn_id);
                     close_and_forget(p_poll, conns[conn_id].sock);
                     return -1;
                 }
             }
             if (conn_get_status_by_id(req->conn_id) == SENDING) {
 
-                printf("Message req_id=%d is still sending after REPLY, conn_id: %d\n", m->req_id, conn_id);
+                dw_log("Message req_id=%d is still sending after REPLY, conn_id: %d\n", m->req_id, conn_id);
                 sys_check(dw_poll_mod(p_poll, conns[conn_id].sock, DW_POLLOUT | DW_POLLONESHOT, i2l(SOCKET, conn_id)));
             }
             // any further cmds[] for replied-to hop, not me
@@ -829,7 +829,7 @@ int obtain_messages(int conn_id, dw_poll_t *p_poll, conn_worker_info_t* infos) {
             req->curr_cmd = message_first_cmd(m);
             // process_single_message() may call reply() -> conn_req_remove() -> req_unlink() + defrag -> req and m invalid
             int req_size = m->req_size;
-            printf("Received message req_id=%d, size=%d, from %s:%d\n", m->req_id, req_size,
+            dw_log("Received message req_id=%d, size=%d, from %s:%d\n", m->req_id, req_size,
                    inet_ntoa((struct in_addr) {conns[conn_id].target.sin_addr.s_addr}), ntohs(conns[conn_id].target.sin_port));
             int executed = process_single_message(req, p_poll, infos);
 
@@ -971,12 +971,11 @@ void exec_request(dw_poll_t *p_poll, dw_poll_flags pflags, int conn_id, event_t 
 
         if (r == 0) {
             // still pending
-            printf("conn_id=%d, still pending after flush, adding EPOLLOUT\n", conn_id);
+            dw_log("conn_id=%d, still pending after flush, adding EPOLLOUT\n", conn_id);
             sys_check(dw_poll_mod(p_poll, conn->sock, DW_POLLOUT | DW_POLLONESHOT, i2l(SOCKET, conn_id)));
-            //conn_set_status(conn, SENDING);
         } else {
             // finished
-            printf("conn_id=%d, flush finished, adding EPOLLIN\n", conn_id);
+            dw_log("conn_id=%d, flush finished, adding EPOLLIN\n", conn_id);
             sys_check(dw_poll_mod(p_poll, conn->sock, DW_POLLIN | DW_POLLONESHOT, i2l(SOCKET, conn_id)));
             conn_set_status(conn, READY);
             infos->active_conns++;
